@@ -1,0 +1,95 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import seaborn as sns
+import numpy as np
+
+class AmazonAnalytics:
+    def _init_(self, file_path):
+        self.df = pd.read_csv(file_path)
+        self.df['order_date'] = pd.to_datetime(self.df['order_date'])
+        self.df['Day_of_Week'] = self.df['order_date'].dt.day_name()
+        self.df['Month'] = self.df['order_date'].dt.strftime('%b')
+        
+    def plot_fixed_grid_dashboard(self):
+        plt.style.use('dark_background')
+        BG_COLOR, CARD_COLOR, BORDER_COLOR = '#0d1117', '#161b22', '#30363d'
+        CYAN, PINK, GREEN, YELLOW, ORANGE = '#00d4ff', '#ff4d6d', '#00ff88', '#ffff00', '#ffa500'
+        
+        fig = plt.figure(figsize=(24, 42), facecolor=BG_COLOR)
+        # Increased to 10 columns for finer control using integers
+        gs = gridspec.GridSpec(50, 10, figure=fig, hspace=4.0, wspace=0.6) 
+
+        # --- MAIN HEADER ---
+        fig.text(0.5, 0.946, 'AMAZON SALES ANALYSIS', fontsize=48, fontweight='bold', color='white', ha='center')
+        fig.text(0.5, 0.935, 'Data Analyst: Artur Montovani', fontsize=8, color='#8b949e', ha='center', fontweight='bold', style='italic', alpha=0.5)
+
+        # --- 1. KPI HEADER (Using 2-column spans now) ---
+        kpis = [(f"${self.df['total_revenue'].sum():,.0f}", "GROSS REVENUE", "white"),
+                (f"{len(self.df):,}", "TOTAL ORDERS", CYAN),
+                (f"{self.df['rating'].mean():.2f} ★", "AVG RATING", YELLOW),
+                (f"{self.df['discount_percent'].mean():.1f}%", "AVG DISCOUNT", PINK),
+                (self.df.groupby('Day_of_Week')['total_revenue'].sum().idxmax().upper(), "BEST SALES DAY", ORANGE)]
+
+        for i, (val, label, col) in enumerate(kpis):
+            ax_card = fig.add_subplot(gs[1:5, i*2:(i*2)+2], facecolor=CARD_COLOR)
+            for spine in ax_card.spines.values(): spine.set_edgecolor(BORDER_COLOR)
+            ax_card.text(0.5, 0.6, val, color=col, fontsize=18, ha='center', fontweight='bold')
+            ax_card.text(0.5, 0.35, label, color='#8b949e', fontsize=10, ha='center', fontweight='bold')
+            ax_card.set_xticks([]); ax_card.set_yticks([])
+
+        # --- ROW 2 ---
+        ax_donut_top = fig.add_subplot(gs[9:21, 0:6], facecolor=BG_COLOR)
+        cat_data = self.df.groupby('product_category')['total_revenue'].sum().sort_values(ascending=False).head(6)
+        ax_donut_top.pie(cat_data, labels=cat_data.index, autopct='%1.1f%%', startangle=140, radius=1.5,
+                    colors=sns.color_palette("magma", 6), wedgeprops={'width': 0.65, 'edgecolor': BG_COLOR})
+        ax_donut_top.set_title('MARKET SHARE BY CATEGORY', fontweight='bold', color=GREEN, fontsize=20, pad=25)
+
+        ax_corr = fig.add_subplot(gs[9:21, 6:], facecolor=BG_COLOR)
+        cols = ['total_revenue', 'rating', 'discount_percent', 'quantity_sold', 'price']
+        corr = self.df[cols].corr()
+        mask = np.triu(np.ones_like(corr, dtype=bool))
+        sns.heatmap(corr.iloc[1:, :-1], mask=mask[1:, :-1], annot=True, cmap='coolwarm', cbar=False, ax=ax_corr, annot_kws={"weight": "bold"})
+        ax_corr.tick_params(axis='y', rotation=0) 
+        ax_corr.set_title('BUSINESS DRIVERS', fontweight='bold', color=CYAN, fontsize=20, pad=15)
+        ax_corr.set_xlabel('')
+
+        # --- ROW 3 ---
+        ax_month = fig.add_subplot(gs[25:37, 0:4], facecolor=BG_COLOR)
+        month_data = self.df.groupby('Month')['total_revenue'].sum().sort_values(ascending=False).head(5)
+        ax_month.pie(month_data, labels=month_data.index, autopct='%1.1f%%', startangle=90, radius=1.5,
+                    colors=sns.color_palette("viridis", 5), wedgeprops={'width': 0.45, 'edgecolor': BG_COLOR})
+        ax_month.set_title('TOP 5 SALES MONTHS', fontweight='bold', color=YELLOW, fontsize=20, pad=20)
+
+        ax_boxen = fig.add_subplot(gs[25:37, 4:], facecolor=CARD_COLOR)
+        sns.boxenplot(data=self.df, y='customer_region', x='total_revenue', hue='customer_region', palette='viridis', ax=ax_boxen)
+        ax_boxen.set_title('REGIONAL DENSITY', fontweight='bold', color=GREEN, fontsize=20, pad=15)
+        ax_boxen.set_xlabel(''); ax_boxen.set_ylabel('')
+
+        # --- ROW 4 ---
+        # TOP DISCOUNT IMPACT (Nudged to start at column 1 instead of 0)
+        ax_disc = fig.add_subplot(gs[41:50, 1:5], facecolor=CARD_COLOR)
+        self.df['disc_val'] = self.df['price'] * self.df['quantity_sold'] * (self.df['discount_percent']/100)
+        impact_summary = self.df.groupby(['customer_region', 'product_category'])['disc_val'].sum().reset_index()
+        sns.barplot(data=impact_summary[impact_summary['disc_val'] >= 180000], x='disc_val', y='customer_region', hue='product_category', palette='magma', ax=ax_disc)
+        ax_disc.set_xlim(190000, 230000)
+        ax_disc.legend(loc='lower left', fontsize=9, ncol=1, frameon=True, facecolor=BG_COLOR, edgecolor=BORDER_COLOR) 
+        ax_disc.set_title('TOP DISCOUNT IMPACT', fontweight='bold', color=YELLOW, fontsize=20, pad=15)
+        ax_disc.set_xlabel(''); ax_disc.set_ylabel('')
+
+        # REGIONAL SALES INTENSITY (Stays at the end of the 10-column grid)
+        ax_heat = fig.add_subplot(gs[41:50, 6:10], facecolor=CARD_COLOR)
+        heat_data = self.df.pivot_table(index='product_category', columns='customer_region', values='total_revenue', aggfunc='sum')
+        sns.heatmap(heat_data, cmap='YlGnBu', annot=False, cbar=True, ax=ax_heat)
+        ax_heat.set_title('REGIONAL SALES INTENSITY', fontweight='bold', color=PINK, fontsize=20, pad=15)
+        ax_heat.tick_params(axis='y', rotation=0)
+        ax_heat.set_xlabel(''); ax_heat.set_ylabel('')
+
+        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+        plt.show()
+
+try:
+    amazon = AmazonAnalytics('Amazon_Sales_Project/amazon_sales_dataset.csv')
+    amazon.plot_fixed_grid_dashboard()
+except Exception as e:
+    print(f"Error: {e}")
